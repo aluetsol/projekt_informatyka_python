@@ -4,8 +4,7 @@ from PyQt5.QtWidgets import (
     QSlider
     #, QFrame
 )
-from PyQt5.QtCore import Qt, QRectF, QPointF 
-#QTimer, 
+from PyQt5.QtCore import Qt, QRectF, QPointF, QTimer
 
 from PyQt5.QtGui import QPainter, QColor, QPen, QPainterPath
 
@@ -28,25 +27,24 @@ class Zbiornik(QWidget):
 
         #self.level = 0.0
         self.level = 0.5
-        #self.fill_open = False
-        #self.drain_open = False
-        #self.flow_rate = 0.004
-        #self.timer = QTimer()
-        #self.timer.timeout.connect(self.update_level)
-        #self.timer.start(16)
+        self.fill_open = False
+        self.drain_open = False
+        self.flow_rate = 0.002
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_level)
+        self.timer.start(50)
+
         self.draw_x = 50
         self.deleteLaterraw_y = 50
 
-    #def toggle_fill(self):
-        #self.fill_open = not self.fill_open
+    def toggle_fill(self):
+        self.fill_open = not self.fill_open
 
     def setPolozenie(self, x, y):
         self.draw_x = x
         self.draw_y = y
         self.update()
-
-    #def toggle_fill(self):
-        #self.fill_open = not self.fill_open
 
     def toggle_drain(self):
         self.drain_open = not self.drain_open
@@ -61,14 +59,15 @@ class Zbiornik(QWidget):
         self.level = max(0.0, min(1.0, val))
         self.update()
 
-   # def update_level(self):
-        #if self.fill_open and self.level < 1.0:
-            #self.level += self.flow_rate
-       # if self.drain_open and self.level > 0.0:
-            #self.level -= self.flow_rate
+    def update_level(self):
+        if self.fill_open and self.level < 1.0:
+            self.level += self.flow_rate
+        if self.drain_open and self.level > 0.0:
+            self.level -= self.flow_rate
 
-        #self.level = max(0.0, min(1.0, self.level))
-        #self.update()
+        self.level = max(0.0, min(1.0, self.level))
+        self.update()
+
     def getPoziom(self):
         return self._poziom
     
@@ -120,7 +119,6 @@ class Zbiornik(QWidget):
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
 
-
 class TankControlPanel(QWidget):
     def __init__(self, tank: Zbiornik):
         super().__init__()
@@ -156,9 +154,10 @@ class TankControlPanel(QWidget):
 
         layout.addLayout(btns)
 
-        #self.timer = QTimer()
+        self.timer = QTimer()
         #self.timer.timeout.connect(self.update_label)
-       # self.timer.start(100)
+        self.timer.timeout.connect(self.sync_tanks)
+        self.timer.start(200)
 
     def slider_changed(self, val):
         self.tank.setLevel(val / 100)
@@ -170,6 +169,10 @@ class TankControlPanel(QWidget):
     def update_label(self):
         percent = int(self.tank.level * 100)
         self.label.setText(f"Poziom: {percent}%")
+
+    def sync_tanks(self):
+        self.tanks[1].setLevel(self.tanks[0].level * 0.8)
+        self.tanks[2].setLevel(self.tanks[1].level * 0.8)
 
 
 class MainWindow(QWidget):
@@ -187,18 +190,23 @@ class MainWindow(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         self.setLayout(layout)
 
-        tank1_box = QVBoxLayout()
-        self.tank1 = Zbiornik()
-        tank1_box.addWidget(self.tank1)
-        tank1_box.addWidget(TankControlPanel(self.tank1))
-        layout.addLayout(tank1_box)
+        #tank1_box = QVBoxLayout()
+        #self.tank1 = Zbiornik()
+        #tank1_box.addWidget(self.tank1)
+        #tank1_box.addWidget(TankControlPanel(self.tank1))
+        #layout.addLayout(tank1_box)
 
-        tank2_box = QVBoxLayout()
-        self.tank2 = Zbiornik()
-        tank2_box.addWidget(self.tank2)
-        tank2_box.addWidget(TankControlPanel(self.tank2))
-        layout.addLayout(tank2_box)
+        #tank2_box = QVBoxLayout()
+        #self.tank2 = Zbiornik()
+        #tank2_box.addWidget(self.tank2)
+        #tank2_box.addWidget(TankControlPanel(self.tank2))
+        #layout.addLayout(tank2_box)
 
+        self.tanks = []
+        for i in range(4):
+            tank = Zbiornik()
+            self.tanks.append(tank)
+            layout.addWidget(tank)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
