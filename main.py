@@ -1,215 +1,184 @@
 import sys
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, 
-    QSlider
-    #, QFrame
-)
-from PyQt5.QtCore import Qt, QRectF, QPointF, QTimer
-
+from PyQt5.QtWidgets import QApplication, QWidget, QPushButton
+from PyQt5.QtCore import Qt, QTimer, QPointF
 from PyQt5.QtGui import QPainter, QColor, QPen, QPainterPath
 
+class Rura:
+    def __init__(self, punkty, grubosc=12):
+        self.punkty = [QPointF(float(p[0]), float(p[1])) for p in punkty]
+        self.grubosc = grubosc
+        self.kolor_rury = QColor(160, 160, 160)
+        self.kolor_cieczy = QColor(0, 180, 255)
+        self.czy_plynie = False
 
-class Zbiornik(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def ustaw_przeplyw(self, plynie):
+        self.czy_plynie = plynie
 
-        self.setMinimumSize(350, 500)
-        #self.setStyleSheet("background-color: #444;")
-        self.top_h = 60
-        self.mid_h = 200
-        self.bot_h = 60
+    def draw(self, painter):
+        if len(self.punkty) < 2:
+            return
 
-        self.w_top = 200
-        self.w_mid = 140
-        self.w_bot = 40
+        path = QPainterPath()
+        path.moveTo(self.punkty[0])
+        for p in self.punkty[1:]:
+            path.lineTo(p)
 
-        self.total_h = self.top_h + self.mid_h + self.bot_h
+        pen_rura = QPen(self.kolor_rury, self.grubosc, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(pen_rura)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(path)
 
-        #self.level = 0.0
-        self.level = 0.5
-        self.fill_open = False
-        self.drain_open = False
-        self.flow_rate = 0.002
+        if self.czy_plynie:
+            pen_ciecz = QPen(self.kolor_cieczy, self.grubosc - 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            painter.setPen(pen_ciecz)
+            painter.drawPath(path)
 
+class Zbiornik:
+    def __init__(self, x, y, width=100, height=140, nazwa=""):
+        self.x = x; self.y = y
+        self.width = width; self.height = height
+        self.nazwa = nazwa
+        self.pojemnosc = 100.0
+        self.aktualna_ilosc = 0.0
+        self.poziom = 0.0
+
+    def dodaj_ciecz(self, ilosc):
+        wolne = self.pojemnosc - self.aktualna_ilosc
+        dodano = min(ilosc, wolne)
+        self.aktualna_ilosc += dodano
+        self.aktualizuj_poziom()
+        return dodano
+
+    def usun_ciecz(self, ilosc):
+        usunieto = min(ilosc, self.aktualna_ilosc)
+        self.aktualna_ilosc -= usunieto
+        self.aktualizuj_poziom()
+        return usunieto
+
+    def aktualizuj_poziom(self):
+        self.poziom = self.aktualna_ilosc / self.pojemnosc
+
+    def czy_pusty(self): return self.aktualna_ilosc <= 0.1
+
+    def czy_pelny(self): return self.aktualna_ilosc >= self.pojemnosc - 0.1
+
+    def punkt_gora_srodek(self): return (self.x + self.width / 2, self.y)
+
+    def punkt_dol_srodek(self): return (self.x + self.width / 2, self.y + self.height)
+
+    def draw(self, painter):
+        if self.poziom > 0:
+            h_cieczy = self.height * self.poziom
+            y_start = self.y + self.height - h_cieczy
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(0, 120, 255, 200))
+            painter.drawRect(int(self.x + 3), int(y_start), int(self.width - 6), int(h_cieczy-2))
+
+        pen = QPen(Qt.white, 4)
+        pen.setJoinStyle(Qt.MiterJoin )
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(self.x, self.y, self.width, self.height)
+        painter.setPen(Qt.white)
+        painter.drawText(self.x, self.y - 10, self.nazwa)
+
+class SymulacjaKaskady(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Kaskada : Dol -> Gora")
+        self.setFixedSize(900, 680)
+        self.setStyleSheet("background-color: #e5e5e5;")
+
+        self.z1 = Zbiornik(50, 50, nazwa="Zbiornik 1")
+        self.z1.aktualna_ilosc = 100
+        self.z1.aktualizuj_poziom()
+
+        self.z2 = Zbiornik(350, 200, nazwa="Zbiornik 2")
+        self.z3 = Zbiornik(650, 350, nazwa="Zbiornik 3")
+        self.zbiorniki = [self.z1, self.z2, self.z3]
+
+        self.rura1 = self.stworz_rure(self.z1, self.z2)
+        self.rura2 = self.stworz_rure(self.z2, self.z3)
+        self.rury = [self.rura1, self.rura2]
         self.timer = QTimer()
-        self.timer.timeout.connect(self.update_level)
-        self.timer.start(50)
+        self.timer.timeout.connect(self.logika_przeplywu)
+        self.running = False
+        self.flow_speed = 1.0
+        self.btn_start = QPushButton("Start / Stop", self)
+        self.btn_start.setGeometry(50, 540, 120, 30)
+        self.btn_start.clicked.connect(self.toggle)
+        self.stworz_przyciski_reczne()
 
-        self.draw_x = 50
-        self.deleteLaterraw_y = 50
+    def stworz_rure(self, z_gora, z_dol):
+        p1 = z_gora.punkt_dol_srodek()
+        p2 = z_dol.punkt_gora_srodek()
+        mid_y = (p1[1] + p2[1]) / 2
 
-    def toggle_fill(self):
-        self.fill_open = not self.fill_open
+        return Rura([
+            p1,
+            (p1[0], mid_y),
+            (p2[0], mid_y),
+            p2
+        ])
 
-    def setPolozenie(self, x, y):
-        self.draw_x = x
-        self.draw_y = y
-        self.update()
+    def stworz_przyciski_reczne(self):
+        x = 220
+        for z in self.zbiorniki:
+            btn_fill = QPushButton(f"+ {z.nazwa}", self)
+            btn_empty = QPushButton(f"- {z.nazwa}", self)
 
-    def toggle_drain(self):
-        self.drain_open = not self.drain_open
+            btn_fill.setGeometry(x, 520, 130, 30) 
+            btn_empty.setGeometry(x , 570, 130, 30)
+            btn_fill.clicked.connect(lambda _, zb=z: self.napelnij(zb))
+            btn_empty.clicked.connect(lambda _, zb=z: self.oproznij(zb))
 
-    def reset(self):
-        self.level = 0.0
-        self.fill_open = False
-        self.drain_open = False
-        self.update()
-
-    def setLevel(self, val):
-        self.level = max(0.0, min(1.0, val))
-        self.update()
-
-    def update_level(self):
-        if self.fill_open and self.level < 1.0:
-            self.level += self.flow_rate
-        if self.drain_open and self.level > 0.0:
-            self.level -= self.flow_rate
-
-        self.level = max(0.0, min(1.0, self.level))
-        self.update()
-
-    def getPoziom(self):
-        return self._poziom
+            x += 200
     
+    def napelnij(self, zb):
+        zb.aktualna_ilosc = zb.pojemnosc
+        zb.aktualizuj_poziom()
+        self.update()
+
+    def oproznij(self, zb):
+        zb.aktualna_ilosc = 0
+        zb.aktualizuj_poziom()
+        self.update()
+
+    def toggle(self):
+        if self.running:
+            self.timer.stop()
+        else:
+            self.timer.start(30)
+        self.running = not self.running
+
+    def logika_przeplywu(self):
+        plynie1 = False
+        if not self.z1.czy_pusty() and not self.z2.czy_pelny():
+            il = self.z1.usun_ciecz(self.flow_speed)
+            self.z2.dodaj_ciecz(il)
+            plynie1 = True
+        self.rura1.ustaw_przeplyw(plynie1)
+
+        plynie2 = False
+        if self.z2.aktualna_ilosc > 5 and not self.z3.czy_pelny():
+            il = self.z2.usun_ciecz(self.flow_speed)
+            self.z3.dodaj_ciecz(il)
+            plynie2 = True
+        self.rura2.ustaw_przeplyw(plynie2)
+
+        self.update()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        cx = self.draw_x + self.w_top / 2
-        start_y = self.draw_y
-
-        #path = QPainterPath()
-
-        p1 = QPointF(cx - self.w_top/2, start_y)
-        p2 = QPointF(cx + self.w_top/2, start_y)
-
-        p3 = QPointF(cx + self.w_mid/2, start_y + self.top_h)
-        p4 = QPointF(cx - self.w_mid/2, start_y + self.top_h)
-
-        p5 = QPointF(cx + self.w_mid/2, start_y + self.top_h + self.mid_h)
-        p6 = QPointF(cx - self.w_mid/2, start_y + self.top_h + self.mid_h)
-
-        p7 = QPointF(cx + self.w_bot/2, start_y + self.total_h)
-        p8 = QPointF(cx - self.w_bot/2, start_y + self.total_h)
-
-        path = QPainterPath()
-        for p in [p1, p2, p3, p5, p7, p8, p6, p4]:
-            if path.isEmpty():
-                path.moveTo(p)
-            else:
-                path.lineTo(p)
-        path.closeSubpath()
-
-        painter.save()
-        painter.setClipPath(path)
-
-        h = self.total_h * self.level
-        rect_liquid = QRectF(
-            cx - self.w_top/2,
-            start_y + self.total_h - h,
-            self.w_top,
-            h
-        )
-
-        painter.fillRect(rect_liquid, QColor(0, 170, 255, 230))
-        painter.restore()
-
-        pen = QPen(Qt.white, 4)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        painter.drawPath(path)
-
-class TankControlPanel(QWidget):
-    def __init__(self, tank: Zbiornik):
-        super().__init__()
-        self.resize(800, 600)
-
-        layout = QVBoxLayout()
-        #layout.setAlignment(Qt.AlignCenter)
-        self.setLayout(layout)
-
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setRange(0, 100)
-        self.slider.setValue(50)
-        self.slider.valueChanged.connect(self.slider_changed)
-        layout.addWidget(self.slider)
-
-        self.label = QLabel("Poziom: 0%")
-        self.label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.label)
-
-        btns = QHBoxLayout()
-
-        self.btn_fill = QPushButton("IN (zawór)")
-        self.btn_fill.clicked.connect(self.tank.toggle_fill)
-        btns.addWidget(self.btn_fill)
-
-        self.btn_drain = QPushButton("OUT (zawór)")
-        self.btn_drain.clicked.connect(self.tank.toggle_drain)
-        btns.addWidget(self.btn_drain)
-
-        self.btn_reset = QPushButton("RESET")
-        self.btn_reset.clicked.connect(self.reset_all)
-        btns.addWidget(self.btn_reset)
-
-        layout.addLayout(btns)
-
-        self.timer = QTimer()
-        #self.timer.timeout.connect(self.update_label)
-        self.timer.timeout.connect(self.sync_tanks)
-        self.timer.start(200)
-
-    def slider_changed(self, val):
-        self.tank.setLevel(val / 100)
-
-    def reset_all(self):
-        self.tank.reset()
-        self.slider.setValue(0)
-
-    def update_label(self):
-        percent = int(self.tank.level * 100)
-        self.label.setText(f"Poziom: {percent}%")
-
-    def sync_tanks(self):
-        self.tanks[1].setLevel(self.tanks[0].level * 0.8)
-        self.tanks[2].setLevel(self.tanks[1].level * 0.8)
-
-
-class MainWindow(QWidget):
-    def __init__(self):
-        super().__init__()
-
-        self.setWindowTitle("Zadanie 3 - Dwa Zbiorniki PyQt5")
-        self.resize(900, 600)
-        self.setStyleSheet("background-color: #222; color: white;")
-
-        layout = QHBoxLayout()
-        self.setLayout(layout)
-        
-        layout.setSpacing(30)
-        layout.setContentsMargins(20, 20, 20, 20)
-        self.setLayout(layout)
-
-        #tank1_box = QVBoxLayout()
-        #self.tank1 = Zbiornik()
-        #tank1_box.addWidget(self.tank1)
-        #tank1_box.addWidget(TankControlPanel(self.tank1))
-        #layout.addLayout(tank1_box)
-
-        #tank2_box = QVBoxLayout()
-        #self.tank2 = Zbiornik()
-        #tank2_box.addWidget(self.tank2)
-        #tank2_box.addWidget(TankControlPanel(self.tank2))
-        #layout.addLayout(tank2_box)
-
-        self.tanks = []
-        for i in range(4):
-            tank = Zbiornik()
-            self.tanks.append(tank)
-            layout.addWidget(tank)
-
+        for r in self.rury:
+            r.draw(painter)
+        for z in self.zbiorniki:
+            z.draw(painter)
+    
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = SymulacjaKaskady()
     window.show()
     sys.exit(app.exec_())
