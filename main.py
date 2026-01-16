@@ -1,7 +1,7 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton
+from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QMessageBox
 from PyQt5.QtCore import Qt, QTimer, QPointF
-from PyQt5.QtGui import QPainter, QColor, QPen, QPainterPath
+from PyQt5.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
 
 class Rura:
     def __init__(self, punkty, grubosc=12):
@@ -33,6 +33,23 @@ class Rura:
             painter.setPen(pen_ciecz)
             painter.drawPath(path)
 
+class Pompa:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.wlaczona = False
+
+    def toggle(self):
+        self.wlaczona = not self.wlaczona
+
+    def draw(self, painter):
+        painter.setPen(QPen(Qt.black, 2))
+        painter.setBrush(QColor(0, 200, 0) if self.wlaczona else QColor(160, 160, 160))
+        painter.drawEllipse(self.x, self.y, 40, 40)
+
+        painter.setPen(Qt.black)
+        painter.drawText(self.x + 12, self.y + 25, "P")
+
 class Zbiornik:
     def __init__(self, x, y, width=100, height=140, nazwa=""):
         self.x = x; self.y = y
@@ -41,6 +58,7 @@ class Zbiornik:
         self.pojemnosc = 100.0
         self.aktualna_ilosc = 0.0
         self.poziom = 0.0
+        
 
     def dodaj_ciecz(self, ilosc):
         wolne = self.pojemnosc - self.aktualna_ilosc
@@ -96,10 +114,10 @@ class Zbiornik:
         painter.setPen(Qt.white)
 
         font = painter.font()
-        font.setPointSize(9)
+        font.setPointSize(8)
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(self.x, self.y - 10, self.nazwa)
+        painter.drawText(self.x, self.y - 20, self.nazwa)
     
     def stan_alarmowy(self):
         if self.poziom <= 0.05:
@@ -116,8 +134,16 @@ class SymulacjaKaskady(QWidget):
         self.setStyleSheet("""
                            background-color: #F5DEB3;
                            QPushButton {
-                                font-size: 14 px;
+                                font-size: 16px;
                                 font-weight: bold;
+                                color: white;
+                                background-color: #6b5ca5;
+                                border-radius: 6px;
+                                padding: 6px;
+                            }
+                           
+                           QPushButton:hover {
+                                background-color: #7d6fc2;
                             }
                            """)
 
@@ -126,6 +152,7 @@ class SymulacjaKaskady(QWidget):
         self.z1.aktualizuj_poziom()
 
         self.z2 = Zbiornik(350, 200, nazwa="Zbiornik 2")
+        self.pompa = Pompa(580, 290)
         self.z3 = Zbiornik(650, 350, nazwa="Zbiornik 3")
         self.z4 = Zbiornik(350, 500, nazwa="Zbiornik 4")
         self.zbiorniki = [self.z1, self.z2, self.z3, self.z4]
@@ -140,12 +167,16 @@ class SymulacjaKaskady(QWidget):
         self.flow_speed = 1.0
 
         self.btn_start = QPushButton("Start / Stop", self)
-        self.btn_start.setGeometry(50, 700, 120, 30)
+        self.btn_start.setGeometry(50, 700, 120, 42)
         self.btn_start.clicked.connect(self.toggle)
 
         self.btn_alarmy = QPushButton("Alarmy", self)
-        self.btn_alarmy.setGeometry(1000, 700, 120, 30)
+        self.btn_alarmy.setGeometry(1000, 680, 120, 42)
         self.btn_alarmy.clicked.connect(self.pokaz_alarmy)
+
+        self.btn_pompa = QPushButton("Pompa ON / OFF", self)
+        self.btn_pompa.setGeometry(1000, 730, 150, 42)
+        self.btn_pompa.clicked.connect(self.pompa.toggle)
 
         self.stworz_przyciski_reczne()
 
@@ -167,8 +198,8 @@ class SymulacjaKaskady(QWidget):
             btn_fill = QPushButton(f"+ {z.nazwa}", self)
             btn_empty = QPushButton(f"- {z.nazwa}", self)
 
-            btn_fill.setGeometry(x, 680, 130, 30) 
-            btn_empty.setGeometry(x , 730, 130, 30)
+            btn_fill.setGeometry(x, 680, 130, 42) 
+            btn_empty.setGeometry(x , 730, 130, 42)
             btn_fill.clicked.connect(lambda _, zb=z: self.napelnij(zb))
             btn_empty.clicked.connect(lambda _, zb=z: self.oproznij(zb))
 
@@ -201,7 +232,12 @@ class SymulacjaKaskady(QWidget):
 
         plynie2 = False
         if self.z2.aktualna_ilosc > 5 and not self.z3.czy_pelny():
-            il = self.z2.usun_ciecz(self.flow_speed)
+            if self.pompa.wlaczona:
+                ilosc = self.flow_speed * 3  
+            else:
+                ilosc = self.flow_speed * 0.3
+
+            il = self.z2.usun_ciecz(ilosc)
             self.z3.dodaj_ciecz(il)
             plynie2 = True
         self.rura2.ustaw_przeplyw(plynie2)
@@ -236,6 +272,8 @@ class SymulacjaKaskady(QWidget):
             r.draw(painter)
         for z in self.zbiorniki:
             z.draw(painter)
+
+        self.pompa.draw(painter)
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)
