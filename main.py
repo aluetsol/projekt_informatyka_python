@@ -118,32 +118,40 @@ class Zbiornik:
         font.setBold(True)
         painter.setFont(font)
         painter.drawText(self.x, self.y - 20, self.nazwa)
-    
-    def stan_alarmowy(self):
-        if self.poziom <= 0.05:
-            return "LOW"
-        if self.poziom >= 0.95:
-            return "HIGH"
-        return None
 
 class SymulacjaKaskady(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Kaskada : Dol -> Gora")
+        self.setWindowTitle("Kaskada")
         self.setFixedSize(1200, 900)
         self.setStyleSheet("""
-                           background-color: #F5DEB3;
+                           QWidget {
+                                background-color: #708090;
+                            }
+                           
                            QPushButton {
+                                font-family: Arial;
                                 font-size: 16px;
                                 font-weight: bold;
                                 color: white;
-                                background-color: #6b5ca5;
+                                background-color: #44698f;
+                                border: 2px solid #2f4e6e;
                                 border-radius: 6px;
                                 padding: 6px;
+                                padding: 6px 12px;
                             }
                            
                            QPushButton:hover {
-                                background-color: #7d6fc2;
+                                background-color: #5a7fa8;
+                            }
+
+                           QPushButton:pressed {
+                                background-color: #2f4e6e;
+                           }
+
+                           QPushButton:disabled {
+                                background-color: #999999;
+                                color: #dddddd;
                             }
                            """)
 
@@ -155,27 +163,29 @@ class SymulacjaKaskady(QWidget):
         self.pompa = Pompa(580, 290)
         self.z3 = Zbiornik(650, 350, nazwa="Zbiornik 3")
         self.z4 = Zbiornik(350, 500, nazwa="Zbiornik 4")
-        self.zbiorniki = [self.z1, self.z2, self.z3, self.z4]
+        self.z5 = Zbiornik(900, 500, nazwa="Zbiornik 5")
+        self.zbiorniki = [self.z1, self.z2, self.z3, self.z4, self.z5]
 
         self.rura1 = self.stworz_rure(self.z1, self.z2)
         self.rura2 = self.stworz_rure(self.z2, self.z3)
-        self.rura3 = self.stworz_rure(self.z3, self.z4)
-        self.rury = [self.rura1, self.rura2, self.rura3]
+        self.rura3a = self.stworz_rure(self.z3, self.z4)
+        self.rura3b = self.stworz_rure(self.z3, self.z5)
+        self.rury = [self.rura1, self.rura2, self.rura3a, self.rura3b]
         self.timer = QTimer()
         self.timer.timeout.connect(self.logika_przeplywu)
         self.running = False
         self.flow_speed = 1.0
 
         self.btn_start = QPushButton("Start / Stop", self)
-        self.btn_start.setGeometry(50, 700, 120, 42)
+        self.btn_start.setGeometry(45, 630, 120, 42)
         self.btn_start.clicked.connect(self.toggle)
 
         self.btn_alarmy = QPushButton("Alarmy", self)
-        self.btn_alarmy.setGeometry(1000, 680, 120, 42)
+        self.btn_alarmy.setGeometry(45, 680, 120, 42)
         self.btn_alarmy.clicked.connect(self.pokaz_alarmy)
 
         self.btn_pompa = QPushButton("Pompa ON / OFF", self)
-        self.btn_pompa.setGeometry(1000, 730, 150, 42)
+        self.btn_pompa.setGeometry(30, 730, 150, 42)
         self.btn_pompa.clicked.connect(self.pompa.toggle)
 
         self.stworz_przyciski_reczne()
@@ -233,21 +243,36 @@ class SymulacjaKaskady(QWidget):
         plynie2 = False
         if self.z2.aktualna_ilosc > 5 and not self.z3.czy_pelny():
             if self.pompa.wlaczona:
-                ilosc = self.flow_speed * 3  
+                ilosc = self.flow_speed * 3   # pompa przyspiesza
             else:
-                ilosc = self.flow_speed * 0.3
+                ilosc = self.flow_speed * 0.3 # bez pompy ledwo leci
 
             il = self.z2.usun_ciecz(ilosc)
             self.z3.dodaj_ciecz(il)
             plynie2 = True
         self.rura2.ustaw_przeplyw(plynie2)
 
-        plynie3 = False
-        if self.z3.aktualna_ilosc > 5 and not self.z4.czy_pelny():
-            il = self.z3.usun_ciecz(self.flow_speed)
-            self.z4.dodaj_ciecz(il)
-            plynie3 = True
-        self.rura3.ustaw_przeplyw(plynie3)
+        plynie3a = False
+        plynie3b = False
+
+        if self.z3.aktualna_ilosc > 5:
+            ilosc_calkowita = self.flow_speed
+
+            il_z4 = ilosc_calkowita / 2
+            il_z5 = ilosc_calkowita / 2
+
+            if not self.z4.czy_pelny():
+                zabrane = self.z3.usun_ciecz(il_z4)
+                self.z4.dodaj_ciecz(zabrane)
+                plynie3a = True
+
+            if not self.z5.czy_pelny():
+                zabrane = self.z3.usun_ciecz(il_z5)
+                self.z5.dodaj_ciecz(zabrane)
+                plynie3b = True
+
+        self.rura3a.ustaw_przeplyw(plynie3a)
+        self.rura3b.ustaw_przeplyw(plynie3b)
 
         self.update()
 
@@ -261,8 +286,33 @@ class SymulacjaKaskady(QWidget):
         if msg == "":
             msg = "Brak aktywnych alarmów"
 
-        from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Alarmy systemowe", msg)
+        box = QMessageBox(self)
+        box.setWindowTitle("Alarmy systemowe")
+        box.setText(msg)
+        box.setIcon(QMessageBox.Information)
+
+        box.setStyleSheet("""
+        QMessageBox {
+            background-color: white;
+        }
+        QLabel {
+            color: black;
+            font-size: 25px;
+            background-color: white;
+        }
+        QPushButton {
+            background-color: #44698f;
+            color: white;
+            font-weight: bold;
+            border-radius: 6px;
+            padding: 6px 12px;
+        }
+        QPushButton:hover {
+            background-color: #5a7fa8;
+        }
+         """)
+
+        box.exec_()
 
     def paintEvent(self, event):
         painter = QPainter(self)
